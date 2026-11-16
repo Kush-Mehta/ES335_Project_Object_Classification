@@ -1,0 +1,9 @@
+VMRD V2 fixed/
+__pycache__/
+*.py[cod]
+*.npy
+!results/labels.npy
+*.joblib
+.venv/
+.DS_Store
+project_inventory.txt

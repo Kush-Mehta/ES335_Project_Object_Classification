@@ -1,0 +1,22 @@
+{
+  "LogisticRegression": {
+    "best_params": {
+      "C": 0.1
+    },
+    "best_cv_accuracy": 0.9232835820895522
+  },
+  "SVM_RBF": {
+    "best_params": {
+      "C": 10,
+      "gamma": "scale"
+    },
+    "best_cv_accuracy": 0.9313432835820896
+  },
+  "RandomForest": {
+    "best_params": {
+      "max_depth": null,
+      "n_estimators": 300
+    },
+    "best_cv_accuracy": 0.8841791044776119
+  }
+}

@@ -1,0 +1,244 @@
+// Local preview connects to the local API automatically. Set VMRD_API_URL before app.js for a hosted service.
+const localPreview = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const API_URL = window.VMRD_API_URL || (localPreview ? "http://127.0.0.1:8000" : "");
+
+const classNames = ["apple", "cans", "cup", "stapler", "toothpaste"];
+const classCounts = { apple: 867, cans: 877, cup: 916, stapler: 636, toothpaste: 892 };
+const modelNames = { lr: "Logistic Regression", svm: "SVM (RBF)", rf: "Random Forest" };
+const results = {
+  lr: {
+    accuracy: .9177, macro: .9185,
+    matrix: [[168,1,3,0,1],[0,161,10,2,3],[4,9,156,4,10],[1,2,5,117,2],[1,3,5,3,167]],
+    rows: [
+      {name:"apple",tp:168,fp:6,fn:5,tn:659,p:.9655,r:.9711,f1:.9683,fpr:.0090,fnr:.0289},
+      {name:"cans",tp:161,fp:15,fn:15,tn:647,p:.9148,r:.9148,f1:.9148,fpr:.0227,fnr:.0852},
+      {name:"cup",tp:156,fp:23,fn:27,tn:632,p:.8715,r:.8525,f1:.8619,fpr:.0351,fnr:.1475},
+      {name:"stapler",tp:117,fp:9,fn:10,tn:702,p:.9286,r:.9213,f1:.9249,fpr:.0127,fnr:.0787},
+      {name:"toothpaste",tp:167,fp:16,fn:12,tn:643,p:.9126,r:.9330,f1:.9227,fpr:.0243,fnr:.0670}
+    ]
+  },
+  svm: {
+    accuracy: .9177, macro: .9181,
+    matrix: [[165,0,7,0,1],[0,156,9,5,6],[2,7,166,1,7],[0,5,8,113,1],[0,2,6,2,169]],
+    rows: [
+      {name:"apple",tp:165,fp:2,fn:8,tn:663,p:.9880,r:.9538,f1:.9706,fpr:.0030,fnr:.0462},
+      {name:"cans",tp:156,fp:14,fn:20,tn:648,p:.9176,r:.8864,f1:.9017,fpr:.0211,fnr:.1136},
+      {name:"cup",tp:166,fp:30,fn:17,tn:625,p:.8469,r:.9071,f1:.8760,fpr:.0458,fnr:.0929},
+      {name:"stapler",tp:113,fp:8,fn:14,tn:703,p:.9339,r:.8898,f1:.9113,fpr:.0113,fnr:.1102},
+      {name:"toothpaste",tp:169,fp:15,fn:10,tn:644,p:.9185,r:.9441,f1:.9311,fpr:.0228,fnr:.0559}
+    ]
+  },
+  rf: {
+    accuracy: .8831, macro: .8826,
+    matrix: [[165,1,4,0,3],[0,152,10,1,13],[3,8,160,0,12],[0,5,17,97,8],[0,6,6,1,166]],
+    rows: [
+      {name:"apple",tp:165,fp:3,fn:8,tn:662,p:.9821,r:.9538,f1:.9677,fpr:.0045,fnr:.0462},
+      {name:"cans",tp:152,fp:20,fn:24,tn:642,p:.8837,r:.8636,f1:.8736,fpr:.0302,fnr:.1364},
+      {name:"cup",tp:160,fp:37,fn:23,tn:618,p:.8122,r:.8743,f1:.8421,fpr:.0565,fnr:.1257},
+      {name:"stapler",tp:97,fp:2,fn:30,tn:709,p:.9798,r:.7638,f1:.8584,fpr:.0028,fnr:.2362},
+      {name:"toothpaste",tp:166,fp:36,fn:13,tn:623,p:.8218,r:.9274,f1:.8714,fpr:.0546,fnr:.0726}
+    ]
+  }
+};
+
+const number = (x, digits=2) => Number(x).toFixed(digits);
+const percent = (x, digits=1) => `${(x*100).toFixed(digits)}%`;
+
+// Class-count chart: switch between raw counts and share of the 4,188 crops.
+let countMode = "number";
+function renderClassCounts() {
+  const root = document.querySelector("#class-bars");
+  const maximum = countMode === "number" ? Math.max(...Object.values(classCounts)) : Math.max(...Object.values(classCounts).map(x=>x/4188));
+  root.innerHTML = classNames.map(label => {
+    const count = classCounts[label];
+    const value = countMode === "number" ? count : count/4188;
+    const shown = countMode === "number" ? count.toLocaleString() : percent(value,1);
+    return `<div class="class-bar-row"><span class="class-bar-label">${label}</span><div class="class-bar-track"><div class="class-bar-fill" style="width:${(value/maximum*100).toFixed(2)}%"></div></div><b>${shown}</b><small>${count.toLocaleString()} crops</small></div>`;
+  }).join("");
+}
+document.querySelectorAll("[data-count-mode]").forEach(button=>button.addEventListener("click",()=>{
+  countMode=button.dataset.countMode;
+  document.querySelectorAll("[data-count-mode]").forEach(b=>b.classList.toggle("active",b===button));
+  renderClassCounts();
+}));
+renderClassCounts();
+
+// HOG direction illustration. The nine unsigned bins cover 0 to 180 degrees.
+const orientation=document.querySelector("#orientation");
+if (orientation) orientation.addEventListener("input",()=>{
+  const bin=Number(orientation.value);
+  const degrees=10+20*bin;
+  document.querySelector("#orientation-value").value=`${degrees}°`;
+  document.querySelector("#svg-angle").textContent=`${degrees}°`;
+  document.querySelector("#orientation-explanation").textContent=`Direction bin ${bin+1} represents an edge-gradient angle near ${degrees}°. HOG places edge strength into nearby direction bins inside each small image cell.`;
+  document.querySelector("#gradient-arrow").setAttribute("transform",`rotate(${degrees-45} 83 88)`);
+});
+
+// Metric guide: a small selection explains the statistical terms where they appear.
+const metricCopy={
+  accuracy:{title:"Accuracy",text:"Of all held-out crops, what fraction received the correct label? It gives a useful overall summary, but it can hide a class that is often missed."},
+  macro:{title:"Macro-F1",text:"For each class, F1 balances precision and recall. Macro-F1 averages those five class scores equally, so a small class counts as much as a large class."},
+  precision:{title:"Precision",text:"Among examples predicted as a particular class, what fraction really belonged to it? Low precision means other classes are often incorrectly assigned that label."},
+  recall:{title:"Recall",text:"Among all true examples of a class, what fraction did the model find? Low recall means the model missed many examples of that class."},
+  fpr:{title:"False-positive rate (FPR)",text:"Among examples that do not belong to a class, what fraction were incorrectly labelled as that class? This is a one-class-versus-the-rest rate."},
+  fnr:{title:"False-negative rate (FNR)",text:"Among examples that do belong to a class, what fraction were labelled as something else? Here it is the class miss rate: FN ÷ (TP + FN)."},
+  coverage:{title:"Coverage",text:"In the rejection analysis, coverage is the fraction of test examples whose top score meets a chosen threshold. Lower coverage means more cases are deferred rather than automatically accepted."}
+};
+function renderMetric(key){const m=metricCopy[key];document.querySelector("#metric-explanation").innerHTML=`<b>${m.title}</b><p>${m.text}</p>`;}
+document.querySelectorAll("[data-metric]").forEach(button=>button.addEventListener("click",()=>{
+  document.querySelectorAll("[data-metric]").forEach(b=>b.classList.toggle("active",b===button));renderMetric(button.dataset.metric);
+}));
+renderMetric("accuracy");
+
+// Confusion matrix heatmap and per-class metrics are built from the actual saved report.
+let matrixMode="count";
+let selectedClass="cup";
+function renderClassDetail(modelKey,label){
+  const row=results[modelKey].rows.find(x=>x.name===label);
+  selectedClass=label;
+  document.querySelector("#class-detail").innerHTML=`<div class="selected-class">${label}<span>${modelNames[modelKey]}</span></div><div class="detail-stats"><div><small>Correctly found</small><b>${row.tp}</b></div><div><small>Missed</small><b>${row.fn}</b></div><div><small>Wrong predictions as this class</small><b>${row.fp}</b></div><div><small>True examples</small><b>${row.tp+row.fn}</b></div></div><div class="detail-metrics"><div><span>Precision</span><b>${number(row.p,4)}</b></div><div><span>Recall</span><b>${number(row.r,4)}</b></div><div><span>F1</span><b>${number(row.f1,4)}</b></div><div><span>FPR</span><b>${number(row.fpr,4)}</b></div><div><span>FNR</span><b>${number(row.fnr,4)}</b></div></div>`;
+}
+function renderMatrix(){
+  const modelKey=document.querySelector("#matrix-model").value;
+  const matrix=results[modelKey].matrix;
+  const largest=Math.max(...matrix.flat());
+  const heading=`<table class="heatmap"><thead><tr><th scope="col">True ↓ / Predicted →</th>${classNames.map(x=>`<th scope="col">${x}</th>`).join("")}</tr></thead><tbody>`;
+  const body=matrix.map((row,i)=>`<tr><th scope="row"><button class="row-select ${classNames[i]===selectedClass?'chosen':''}" data-row-class="${classNames[i]}">${classNames[i]}</button></th>${row.map((value,j)=>{
+    const share=value/row.reduce((a,b)=>a+b,0);
+    const intensity=matrixMode==="count"?value/largest:share;
+    const text=matrixMode==="count"?String(value):percent(share,1);
+    const tone=intensity>.54?"dark":"";
+    return `<td><button class="heat-cell ${tone} ${i===j?'diagonal':''}" style="--heat:${intensity}" data-row-class="${classNames[i]}" aria-label="True ${classNames[i]}, predicted ${classNames[j]}: ${text}"><span>${text}</span><small>${classNames[j]}</small></button></td>`;
+  }).join("")}</tr>`).join("");
+  document.querySelector("#matrix-chart").innerHTML=heading+body+"</tbody></table>";
+  document.querySelectorAll("[data-row-class]").forEach(el=>el.addEventListener("click",()=>{
+    renderClassDetail(modelKey,el.dataset.rowClass);
+    document.querySelectorAll(".row-select").forEach(button=>button.classList.toggle("chosen",button.dataset.rowClass===el.dataset.rowClass));
+  }));
+  document.querySelectorAll(".heat-cell").forEach((el,index)=>{
+    const row=Math.floor(index/classNames.length),col=index%classNames.length;
+    const total=matrix[row].reduce((a,b)=>a+b,0),value=matrix[row][col];
+    const message=`True ${classNames[row]} → predicted ${classNames[col]}: ${value} crop${value===1?"":"s"} (${percent(value/total)} of this true class).`;
+    el.addEventListener("mouseenter",()=>document.querySelector("#matrix-tooltip").textContent=message);
+    el.addEventListener("focus",()=>document.querySelector("#matrix-tooltip").textContent=message);
+  });
+  document.querySelector("#matrix-caption").textContent=matrixMode==="count"?`Each row sums to the number of held-out examples in that true class. The diagonal cells are correct predictions. Overall test accuracy: ${percent(results[modelKey].accuracy,2)}.`:"Each row is normalized to 100%. A diagonal value is the recall for that true class; off-diagonal values show where that class was sent instead.";
+  renderClassDetail(modelKey,selectedClass);
+}
+document.querySelector("#matrix-model").addEventListener("change",renderMatrix);
+document.querySelectorAll("[data-matrix-mode]").forEach(button=>button.addEventListener("click",()=>{
+  matrixMode=button.dataset.matrixMode;
+  document.querySelectorAll("[data-matrix-mode]").forEach(b=>b.classList.toggle("active",b===button));renderMatrix();
+}));
+renderMatrix();
+
+// Small, data-backed model comparison; the selector switches the measured quantity.
+function renderComparison(){
+  const metric=document.querySelector("#comparison-metric").value;
+  const key=metric==="accuracy"?"accuracy":"macro";
+  const values=["lr","svm","rf"].map(k=>({key:k,value:results[k][key]}));
+  const minimum=0, maximum=1;
+  let axis=document.querySelector("#comparison-axis");
+  if(!axis){axis=document.createElement("p");axis.id="comparison-axis";axis.className="chart-foot";document.querySelector("#model-comparison").before(axis);}
+  document.querySelector("#model-comparison").innerHTML=values.map(item=>`<div class="compare-row"><span>${modelNames[item.key]}</span><div class="compare-track"><i style="width:${((item.value-minimum)/(maximum-minimum)*100).toFixed(2)}%"></i></div><b>${number(item.value,4)}</b></div>`).join("");
+  document.querySelector("#comparison-explanation").textContent=metric==="accuracy"?"Accuracy is the share of all 838 held-out crops labelled correctly.":"Macro-F1 averages the five per-class F1 scores equally. The displayed values come from the saved held-out report.";
+  axis.textContent="Scale: 0.00 to 1.00 (0% to 100%); bar lengths start at zero.";
+}
+document.querySelector("#comparison-metric").addEventListener("change",renderComparison);renderComparison();
+
+// Optional exact threshold series. The page never estimates values from a PNG.
+async function loadRejectionData(){
+  const slider=document.querySelector("#curve-threshold");
+  const note=document.querySelector("#rejection-plot");
+  const label=document.querySelector("#curve-threshold-value");
+  const output=document.querySelector("#curve-point");
+  try{
+    const response=await fetch("data/rejection_data.json");
+    if(!response.ok)throw new Error("missing exact threshold data");
+    const data=await response.json();
+    const displayNames={Logistic_Regression:"Logistic Regression",SVM_RBF:"SVM (RBF)",Random_Forest:"Random Forest"};
+    const summaryRows=Object.entries(data).map(([key,series])=>{
+      let index=0;for(let i=1;i<series.thresholds.length;i++)if(Math.abs(series.thresholds[i]-.8)<Math.abs(series.thresholds[index]-.8))index=i;
+      return `<tr><td>${displayNames[key]||key}</td><td>${percent(series.coverage[index])}</td><td>${series.accuracy[index]===null?"—":percent(series.accuracy[index])}</td></tr>`;
+    }).join("");
+    document.querySelector("#threshold-summary").innerHTML=`<table><thead><tr><th>Model</th><th>Coverage</th><th>Accuracy on accepted</th></tr></thead><tbody>${summaryRows}</tbody></table>`;
+    slider.disabled=false;
+    function show(){
+      const series=data[document.querySelector("#curve-model").value];
+      if(!series?.thresholds?.length)throw new Error("series not found");
+      const desired=Number(slider.value);let idx=0;
+      for(let i=1;i<series.thresholds.length;i++)if(Math.abs(series.thresholds[i]-desired)<Math.abs(series.thresholds[idx]-desired))idx=i;
+      const points=series.thresholds.map((t,i)=>({t,c:series.coverage[i],a:series.accuracy[i]}));
+      const W=740,H=280,L=58,R=18,T=18,B=44;
+      const x=v=>L+v*(W-L-R), y=v=>T+(1-v)*(H-T-B);
+      const axes=`<line x1="${L}" y1="${y(0)}" x2="${W-R}" y2="${y(0)}"/><line x1="${L}" y1="${y(0)}" x2="${L}" y2="${y(1)}"/>`;
+      const grid=[0,.25,.5,.75,1].map(v=>`<line class="gridline" x1="${L}" y1="${y(v)}" x2="${W-R}" y2="${y(v)}"/><text x="${L-10}" y="${y(v)+4}" text-anchor="end">${Math.round(v*100)}%</text>`).join("");
+      const xGrid=[0,.25,.5,.75,1].map(v=>`<line class="gridline" x1="${x(v)}" y1="${T}" x2="${x(v)}" y2="${y(0)}"/><text x="${x(v)}" y="${y(0)+16}" text-anchor="middle">${Math.round(v*100)}%</text>`).join("");
+      const acceptedAccuracy=points.filter(p=>p.a!==null).map(p=>`${x(p.c)},${y(p.a)}`).join(" ");
+      const point=points[idx];
+      const selectedDot=point.a===null?"":`<circle class="selection-dot" cx="${x(point.c)}" cy="${y(point.a)}" r="6"/>`;
+      note.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Held-out rejection curve: accuracy on accepted examples versus coverage. The selected confidence threshold is highlighted."><g class="chart-axis">${grid}${xGrid}${axes}<text x="${(L+W-R)/2}" y="${H-8}" text-anchor="middle">Coverage: fraction of held-out crops accepted</text><text transform="translate(17 ${(T+H-B)/2}) rotate(-90)" text-anchor="middle">Accuracy among accepted crops</text></g><polyline class="accepted-line" points="${acceptedAccuracy}"/>${selectedDot}<g class="legend"><line x1="88" y1="${H-27}" x2="112" y2="${H-27}" class="accepted-line"/><text x="119" y="${H-23}">${document.querySelector("#curve-model").selectedOptions[0].text} · held-out set</text></g></svg>`;
+      label.value=number(point.t,2);
+      output.textContent=point.a==null?`Threshold ${number(point.t,2)} accepts ${percent(point.c)} of test crops; no accepted cases are available to calculate accuracy.`:`At threshold ${number(point.t,2)}, coverage is ${percent(point.c)} and accuracy among accepted crops is ${percent(point.a)}.`;
+    }
+    slider.addEventListener("input",show);
+    document.querySelector("#curve-model").addEventListener("change",show);
+    show();
+  }catch{
+    note.innerHTML="<p>Exact per-threshold arrays are not in the current results folder. This chart will use the real held-out model scores after the evaluation script writes <code>results/rejection_data.json</code>; values are not estimated from the saved image.</p>";
+  }
+}
+loadRejectionData();
+
+// Crop in browser; only the selected crop is uploaded. Threshold changes remain local.
+let cropper=null;
+const upload=document.querySelector("#upload");
+const cropImage=document.querySelector("#crop-image");
+const predictButton=document.querySelector("#predict");
+const apiStatus=document.querySelector("#api-status");
+const prediction=document.querySelector("#prediction");
+const threshold=document.querySelector("#threshold");
+function updateDecision(){
+  if(prediction.hidden||!prediction.dataset.confidence)return;
+  const accepted=Number(prediction.dataset.confidence)>=Number(threshold.value);
+  const badge=document.querySelector("#decision");
+  badge.className=`decision ${accepted?"pass":"review"}`;
+  badge.textContent=accepted?"GRASP · identity score meets threshold":"FLAG FOR HUMAN REVIEW · score below threshold";
+}
+threshold.addEventListener("input",()=>{
+  document.querySelector("#threshold-value").value=Number(threshold.value).toFixed(2);
+  updateDecision();
+});
+upload.addEventListener("change",()=>{
+  const file=upload.files?.[0];if(!file)return;
+  if(!API_URL){apiStatus.textContent="The crop tool is ready, but predictions need a deployed API URL and model artifacts.";}
+  if(cropper){cropper.destroy();cropper=null;}
+  document.querySelector("#crop-placeholder").hidden=true;cropImage.hidden=false;
+  cropImage.onload=()=>{
+    if(typeof Cropper==="undefined"){apiStatus.textContent="The crop tool could not load. Check the network connection and try again.";return;}
+    cropper=new Cropper(cropImage,{viewMode:1,autoCropArea:.78,aspectRatio:1,responsive:true,background:false});predictButton.disabled=false;
+  };
+  cropImage.src=URL.createObjectURL(file);prediction.hidden=true;document.querySelector("#prediction-empty").hidden=true;
+});
+document.querySelector("#demo-model").addEventListener("change",()=>{if(cropper&&API_URL)predictButton.click();});
+predictButton.addEventListener("click",async()=>{
+  if(!cropper)return;
+  if(!API_URL){apiStatus.textContent="No hosted prediction API is configured yet. The crop is not uploaded anywhere.";return;}
+  predictButton.disabled=true;apiStatus.textContent="Sending the selected crop to the prediction API…";
+  try{
+    // Export exactly the model's input dimensions. The API repeats the resize
+    // defensively, using the same preprocessing function as the training code.
+    const blob=await new Promise((resolve,reject)=>cropper.getCroppedCanvas({width:128,height:128,imageSmoothingEnabled:true,imageSmoothingQuality:"high"}).toBlob(b=>b?resolve(b):reject(new Error("Could not create crop")),"image/jpeg",.92));
+    const form=new FormData();form.append("image",blob,"object-crop.jpg");form.append("model",document.querySelector("#demo-model").value);form.append("threshold",threshold.value);
+    const response=await fetch(`${API_URL.replace(/\/$/,"")}/predict`,{method:"POST",body:form});
+    const data=await response.json();if(!response.ok)throw new Error(data.detail||`Request failed (${response.status})`);
+    prediction.dataset.confidence=data.confidence;prediction.dataset.predicted=data.predicted_class;
+    const sorted=Object.entries(data.all_class_probabilities).sort((a,b)=>b[1]-a[1]);
+    document.querySelector("#probabilities").innerHTML=sorted.map(([label,value])=>`<div class="prob-row ${label===data.predicted_class?"top":""}"><span>${label===data.predicted_class?"★ ":""}${label}</span><div class="prob-track"><i style="width:${Math.max(0,Math.min(100,value*100))}%"></i></div><b>${percent(value)}</b></div>`).join("");
+    prediction.hidden=false;document.querySelector("#prediction-empty").hidden=true;
+    apiStatus.textContent=`Prediction received from ${modelNames[data.model_used]||data.model_used}. Moving the threshold below does not change these scores.`;updateDecision();
+  }catch(error){apiStatus.textContent=`The API may be waking up or unreachable: ${error.message}`;}
+  finally{predictButton.disabled=false;}
+});
+if(!API_URL)apiStatus.textContent="No hosted prediction API is configured. Choose an image to inspect the square crop; prediction requires a model endpoint.";
+else apiStatus.textContent="Local API selected. Start the FastAPI service on port 8000 to enable predictions; the cropped image will be sent to your local computer.";
