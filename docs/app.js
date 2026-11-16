@@ -1,5 +1,5 @@
 // Local preview connects to the local API automatically. Set VMRD_API_URL before app.js for a hosted service.
-const localPreview = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const localPreview = ["localhost", "127.0.0.1"].includes(window.location.hostname) || window.location.protocol === "file:";
 const API_URL = window.VMRD_API_URL || (localPreview ? "http://127.0.0.1:8000" : "");
 
 const classNames = ["apple", "cans", "cup", "stapler", "toothpaste"];
@@ -190,14 +190,58 @@ async function loadRejectionData(){
 }
 loadRejectionData();
 
-// Crop in browser; only the selected crop is uploaded. Threshold changes remain local.
-let cropper=null;
+// Keep a fixed square input frame. Visitors can pan the source image and
+// stretch it independently in each direction, matching training's 128×128 input.
 const upload=document.querySelector("#upload");
-const cropImage=document.querySelector("#crop-image");
+const cropCanvas=document.querySelector("#crop-canvas");
+const cropCtx=cropCanvas.getContext("2d");
+const cropPlaceholder=document.querySelector("#crop-placeholder");
+const scaleX=document.querySelector("#scale-x");
+const scaleY=document.querySelector("#scale-y");
+const resetImage=document.querySelector("#reset-image");
 const predictButton=document.querySelector("#predict");
 const apiStatus=document.querySelector("#api-status");
 const prediction=document.querySelector("#prediction");
 const threshold=document.querySelector("#threshold");
+const frameSize=384;
+let sourceImage=null, baseFit=1, offsetX=0, offsetY=0, dragging=false, lastPointer=null;
+function drawImageTo(ctx,size){
+  ctx.clearRect(0,0,size,size);
+  if(!sourceImage)return;
+  const factor=size/frameSize;
+  const w=sourceImage.naturalWidth*baseFit*(Number(scaleX.value)/100)*size/300;
+  const h=sourceImage.naturalHeight*baseFit*(Number(scaleY.value)/100)*size/300;
+  ctx.drawImage(sourceImage,(size-w)/2+offsetX*factor,(size-h)/2+offsetY*factor,w,h);
+}
+function renderCrop(){
+  drawImageTo(cropCtx,frameSize);
+  document.querySelector("#scale-x-value").value=`${scaleX.value}%`;
+  document.querySelector("#scale-y-value").value=`${scaleY.value}%`;
+}
+function fitImage(){
+  if(!sourceImage)return;
+  baseFit=300/Math.max(sourceImage.naturalWidth,sourceImage.naturalHeight);
+  scaleX.value="100";scaleY.value="100";offsetX=0;offsetY=0;renderCrop();
+}
+function setImageFile(file){
+  if(!file)return;
+  const image=new Image();
+  image.onload=()=>{
+    sourceImage=image;cropPlaceholder.hidden=true;
+    scaleX.disabled=false;scaleY.disabled=false;resetImage.disabled=false;predictButton.disabled=false;
+    fitImage();prediction.hidden=true;document.querySelector("#prediction-empty").hidden=false;
+    apiStatus.textContent="Image ready. Adjust it inside the fixed 128 × 128 frame, then predict.";
+  };
+  image.onerror=()=>{apiStatus.textContent="The selected file could not be opened as an image.";};
+  image.src=URL.createObjectURL(file);
+}
+upload.addEventListener("change",()=>setImageFile(upload.files?.[0]));
+for(const control of [scaleX,scaleY])control.addEventListener("input",renderCrop);
+resetImage.addEventListener("click",fitImage);
+cropCanvas.addEventListener("pointerdown",event=>{if(!sourceImage)return;dragging=true;lastPointer={x:event.clientX,y:event.clientY};cropCanvas.setPointerCapture(event.pointerId);});
+cropCanvas.addEventListener("pointermove",event=>{if(!dragging||!lastPointer)return;const rect=cropCanvas.getBoundingClientRect();offsetX+=(event.clientX-lastPointer.x)*frameSize/rect.width;offsetY+=(event.clientY-lastPointer.y)*frameSize/rect.height;lastPointer={x:event.clientX,y:event.clientY};renderCrop();});
+cropCanvas.addEventListener("pointerup",()=>{dragging=false;lastPointer=null;});
+cropCanvas.addEventListener("pointercancel",()=>{dragging=false;lastPointer=null;});
 function updateDecision(){
   if(prediction.hidden||!prediction.dataset.confidence)return;
   const accepted=Number(prediction.dataset.confidence)>=Number(threshold.value);
@@ -209,26 +253,16 @@ threshold.addEventListener("input",()=>{
   document.querySelector("#threshold-value").value=Number(threshold.value).toFixed(2);
   updateDecision();
 });
-upload.addEventListener("change",()=>{
-  const file=upload.files?.[0];if(!file)return;
-  if(!API_URL){apiStatus.textContent="The crop tool is ready, but predictions need a deployed API URL and model artifacts.";}
-  if(cropper){cropper.destroy();cropper=null;}
-  document.querySelector("#crop-placeholder").hidden=true;cropImage.hidden=false;
-  cropImage.onload=()=>{
-    if(typeof Cropper==="undefined"){apiStatus.textContent="The crop tool could not load. Check the network connection and try again.";return;}
-    cropper=new Cropper(cropImage,{viewMode:1,autoCropArea:.78,aspectRatio:1,responsive:true,background:false});predictButton.disabled=false;
-  };
-  cropImage.src=URL.createObjectURL(file);prediction.hidden=true;document.querySelector("#prediction-empty").hidden=true;
-});
-document.querySelector("#demo-model").addEventListener("change",()=>{if(cropper&&API_URL)predictButton.click();});
+document.querySelector("#demo-model").addEventListener("change",()=>{if(sourceImage&&API_URL)predictButton.click();});
 predictButton.addEventListener("click",async()=>{
-  if(!cropper)return;
-  if(!API_URL){apiStatus.textContent="No hosted prediction API is configured yet. The crop is not uploaded anywhere.";return;}
+  if(!sourceImage)return;
+  if(!API_URL){apiStatus.textContent="No prediction API address is configured.";return;}
   predictButton.disabled=true;apiStatus.textContent="Sending the selected crop to the prediction API…";
   try{
-    // Export exactly the model's input dimensions. The API repeats the resize
-    // defensively, using the same preprocessing function as the training code.
-    const blob=await new Promise((resolve,reject)=>cropper.getCroppedCanvas({width:128,height:128,imageSmoothingEnabled:true,imageSmoothingQuality:"high"}).toBlob(b=>b?resolve(b):reject(new Error("Could not create crop")),"image/jpeg",.92));
+    // Rasterize the fixed display frame at exactly 128×128 model pixels.
+    const output=document.createElement("canvas");output.width=128;output.height=128;
+    const outCtx=output.getContext("2d");outCtx.imageSmoothingEnabled=true;outCtx.imageSmoothingQuality="high";drawImageTo(outCtx,128);
+    const blob=await new Promise((resolve,reject)=>output.toBlob(b=>b?resolve(b):reject(new Error("Could not create crop")),"image/jpeg",.92));
     const form=new FormData();form.append("image",blob,"object-crop.jpg");form.append("model",document.querySelector("#demo-model").value);form.append("threshold",threshold.value);
     const response=await fetch(`${API_URL.replace(/\/$/,"")}/predict`,{method:"POST",body:form});
     const data=await response.json();if(!response.ok)throw new Error(data.detail||`Request failed (${response.status})`);
@@ -240,5 +274,5 @@ predictButton.addEventListener("click",async()=>{
   }catch(error){apiStatus.textContent=`The API may be waking up or unreachable: ${error.message}`;}
   finally{predictButton.disabled=false;}
 });
-if(!API_URL)apiStatus.textContent="No hosted prediction API is configured. Choose an image to inspect the square crop; prediction requires a model endpoint.";
-else apiStatus.textContent="Local API selected. Start the FastAPI service on port 8000 to enable predictions; the cropped image will be sent to your local computer.";
+if(!API_URL)apiStatus.textContent="No prediction API address is configured.";
+else fetch(`${API_URL}/health`).then(response=>{if(!response.ok)throw new Error("API unavailable");return response.json();}).then(()=>{apiStatus.textContent="Prediction API connected on this computer. Choose an image to begin.";}).catch(()=>{apiStatus.textContent="The prediction service is not running. Start the local API, then reopen this page.";});
