@@ -8,9 +8,11 @@ Given one image crop that contains one object, predict whether it is an apple, c
 
 ## Data
 
-VMRD (Visual Manipulation Relationship Dataset) supplies cluttered robotic-manipulation photographs and XML annotations. The original project used 4,683 annotated photographs; filtering kept 2,674 that contained at least one selected class. Cropping produced 4,188 object instances: stapler 636, toothpaste 892, cup 916, cans 877, apple 867. The XML `object/name` is the label and `bndbox` contains the crop coordinates. The `index`, `father`, `children`, and `Grasps/` data were not used because this project classifies object identity.
+VMRD (Visual Manipulation Relationship Dataset) supplies cluttered robotic-manipulation photographs and XML annotations. This project folder contains 4,683 source photographs and annotations. Filtering kept 2,674 scenes that contained at least one selected class. Cropping produced 4,188 object instances: stapler 636, toothpaste 892, cup 916, cans 877, and apple 867. The XML `object/name` is the label and `bndbox` contains the crop coordinates. The `index`, `father`, `children`, and `Grasps/` data were not used because this project classifies object identity.
 
-The repository keeps the code, manifest, labels, result figures, and text metrics. It excludes the original data, derived images, and the approximately 275 MB feature matrix. Download the [VMRD V2 archive](https://www.dropbox.com/s/ff0f4bqw4s1pxa2/VMRD%20V2%20fixed.tar.gz?dl=0), then place its `Annotations/` and `JPEGImages/` directories under `VMRD V2 fixed/`. The [VMRN paper](https://arxiv.org/abs/1802.08857) is the dataset citation. Check the source for current redistribution terms before sharing the images.
+The complete local data layout is documented in [`VMRD V2 fixed/README.md`](VMRD%20V2%20fixed/README.md). Raw images, filtered scenes, object crops, both preprocessing outputs, feature arrays, evaluation results, and model artifacts are included in this project folder. Git LFS is configured for JPEG images, NumPy arrays, and joblib models so these files are stored as LFS objects instead of ordinary Git blobs. The largest current model file is about 874 MB; GitHub Free allows Git LFS files up to 2 GB each. GitHub Free includes 10 GB of LFS storage and monthly bandwidth, so the current data and artifacts fit within the published allowance, but clones and repeated downloads consume bandwidth. See [GitHub's LFS limits](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-git-large-file-storage) and [usage allowance](https://docs.github.com/en/billing/reference/product-usage-included).
+
+The original [VMRD V2 archive](https://www.dropbox.com/s/ff0f4bqw4s1pxa2/VMRD%20V2%20fixed.tar.gz?dl=0) is the recovery source if the local raw data needs to be restored. The [VMRN paper](https://arxiv.org/abs/1802.08857) is the dataset citation. The dataset page describes downloads as free and open and asks users to cite the paper, but does not state a standard reuse license; confirm the source terms before redistributing the data publicly.
 
 ## Setup
 
@@ -20,8 +22,22 @@ The exact Python version used for the original run was not recorded in the suppl
 python -m venv .venv
 # Windows: .venv\Scripts\activate
 # macOS/Linux: source .venv/bin/activate
+git lfs install
 pip install -r requirements.txt
 ```
+
+Git LFS must be initialized before adding the large files to a new repository. The tracked file patterns are listed in `.gitattributes`.
+
+When cloning this repository on another computer, install Git LFS first, clone the repository, then fetch its large files:
+
+```bash
+git lfs install
+git clone https://github.com/<your-account>/<repository-name>.git
+cd <repository-name>
+git lfs pull
+```
+
+The raw VMRD data and project-generated crops and features are under `VMRD V2 fixed/`; that folder's README describes each subfolder. The archive download link above can restore the original dataset if needed.
 
 ## Rebuild and run order
 
@@ -76,20 +92,28 @@ Example request:
 curl -X POST -F "image=@crop.jpg" -F "model=svm" -F "threshold=0.80" http://localhost:8000/predict
 ```
 
-The endpoint accepts `svm`, `lr`, or `rf` and returns the v2 fused prediction, confidence, all five class scores, fusion weight, and threshold decision. Random Forest is the default in both the website and API; callers can choose another model explicitly. Its `/docs` page provides the generated API schema. The exported model files are generated locally and ignored by Git; no hosted endpoint is configured yet.
+The endpoint accepts `svm`, `lr`, or `rf` and returns the v2 fused prediction, confidence, all five class scores, fusion weight, and threshold decision. Random Forest is the default in both the website and API; callers can choose another model explicitly. Its `/docs` page provides the generated API schema. The exported model files are included and tracked with Git LFS; no hosted endpoint is configured yet.
 
 The complete website snapshot from before the Random Forest default change is preserved in `docs/archive/v2-before-rf-default/`.
 
 ## Repository map
 
-- `config.py` - shared local data and result paths.
-- `src/` - numbered data, feature, training, evaluation, and model-export scripts.
-- `results/` - manifest, labels, parameters, result text, and figures.
-- `legacy/` - superseded exploratory analysis script.
-- `docs/` - responsive interactive project website.
-- `backend/` - FastAPI prediction endpoint and Docker setup.
+Use this map to jump to the part of the project you need:
 
-Large data files, generated feature arrays, and model artifacts are excluded by `.gitignore`.
+| Start here | What is inside |
+| --- | --- |
+| [`docs/index.html`](docs/index.html) | Interactive project story and browser prediction interface. |
+| [`docs/data/`](docs/data/) | Saved chart inputs for the website. `v2_results.json` and `v2_results.js` contain the current v2 result data; `rejection_data.json` and `v1_rejection.js` contain saved rejection-curve data. |
+| [`src/`](src/) | Numbered scripts for annotation counts, filtering, crops, preprocessing, feature extraction, training, tuning, evaluation, and model export. Use the v1 and v2 run orders above. |
+| [`results/`](results/) | Evaluation records and saved artifacts. `results_v2.json`, `best_params_twostream.json`, and `figures_v2/` hold v2 results. The `model_*_hog.joblib` and `model_*_color.joblib` files are the three current v2 model pairs used by the prediction API. The un-suffixed legacy model files and `figures/` hold v1 outputs. |
+| [`VMRD V2 fixed/README.md`](VMRD%20V2%20fixed/README.md) | Dataset folder guide: original VMRD data, filtered scenes, object crops, both preprocessing versions, and feature arrays. |
+| [`backend/`](backend/) | FastAPI prediction endpoint, dependency list, and Docker setup. |
+| [`legacy/`](legacy/) | Superseded exploratory analysis script. |
+| [`.github/workflows/pages.yml`](.github/workflows/pages.yml) | Publishes `docs/` to GitHub Pages when `main` is pushed. |
+| [`config.py`](config.py) | Shared local paths and target class names used by the Python scripts. |
+| [`.gitattributes`](.gitattributes) | Git LFS rules for JPEG images, NumPy arrays, and joblib models. |
+
+Python caches, virtual environments, and the generated `project_inventory.txt` are excluded by `.gitignore`. Project data and model artifacts are included.
 
 ## AI-use disclosure
 
@@ -97,14 +121,30 @@ Claude (Anthropic) generated the Python code. Codex (OpenAI) assisted with build
 
 ## Publish the website with GitHub Pages
 
-The complete static website is in `docs/`. The workflow `.github/workflows/deploy-pages.yml` publishes that folder whenever code is pushed to `main`. After the repository is created, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions**. The site URL will be `https://<owner>.github.io/<repository>/`.
+The complete static website is in `docs/`. The workflow `.github/workflows/pages.yml` publishes that folder whenever code is pushed to `main`. After the repository is created, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions**. The site URL will be `https://<owner>.github.io/<repository>/`.
 
-The charts, version selector, result tables, and other browser interactions run on the published site. GitHub Pages does not run the Python prediction API. The upload-and-predict demo connects to `http://127.0.0.1:8000` when the site is opened locally; a hosted prediction service would need its own deployment and a `window.VMRD_API_URL` setting.
+The charts, version selector, result tables, and other browser interactions run on the published site. GitHub Pages does not run the Python prediction API. The upload-and-predict demo connects to `http://127.0.0.1:8000` when the site is opened locally; a hosted prediction service would need its own deployment and a `window.VMRD_API_URL` setting. The hosted API deployment is a separate follow-up step; the local API address cannot serve website visitors.
+
+## Create and push the source repository
+
+The local project already has Git history on the `main` branch. Create an empty GitHub repository (do not initialize it with a README, license, or `.gitignore`), then open PowerShell in this folder and run:
+
+```powershell
+git lfs install
+git lfs track "*.jpg" "*.jpeg" "*.npy" "*.joblib"
+git add .
+git status --short
+git commit -m "Include project data and model artifacts"
+git remote add origin https://github.com/<your-account>/<repository-name>.git
+git push -u origin main
+```
+
+If `origin` is already configured, update it with `git remote set-url origin https://github.com/<your-account>/<repository-name>.git` instead of adding it. Before committing, confirm that `.gitattributes` is included and that `git lfs ls-files` lists the images, feature arrays, and models. Do not run `git lfs migrate` for this new push: the large files were previously ignored and are not in the existing Git history. The initial upload can take a while because it uploads several gigabytes of LFS data. GitHub enforces a 2 GB maximum per Git push; if Git reports that the push itself exceeds that limit, push LFS objects first with `git lfs push --all origin main`, then push Git history.
 
 ## References and licensing
 
 - Wang et al., "Visual Manipulation Relationship Network for Autonomous Robotics," ICRA 2018, [paper](https://arxiv.org/abs/1802.08857).
 - [scikit-learn](https://scikit-learn.org/), [scikit-image](https://scikit-image.org/), and [OpenCV](https://opencv.org/).
-- No code license has been selected. The VMRD images have separate terms and are not included here; consult the dataset source before redistributing them.
+- No code license has been selected. The VMRD dataset has separate terms; its public dataset page describes downloads as free and open but does not identify a standard license. Cite the paper and confirm the source's redistribution terms before making the repository public.
 
 
