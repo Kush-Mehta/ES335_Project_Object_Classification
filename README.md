@@ -93,7 +93,13 @@ Large data files, generated feature arrays, and model artifacts are excluded by 
 
 ## AI-use disclosure
 
-Codex assisted with repository organization, portable paths, and drafting the README, website, and API implementation. The dataset and pipeline facts come from the supplied project artifacts. V1 held-out metrics come from the saved report; v2 metrics and interactive chart data are computed from the exported v2 models on the fixed held-out split, not estimated from plots. The student should review the code and be prepared to explain its choices and limitations.
+Claude (Anthropic) generated the Python code. Codex (OpenAI) assisted with building the website. Experimental choices, pipeline runs, and result verification were completed independently. The dataset and pipeline facts came from the supplied project artifacts. V1 held-out metrics came from the saved report; v2 metrics and interactive chart data were computed from the exported v2 models on the fixed held-out split, not estimated from plots. The project author should review the code and be prepared to explain its choices and limitations.
+
+## Publish the website with GitHub Pages
+
+The complete static website is in `docs/`. The workflow `.github/workflows/deploy-pages.yml` publishes that folder whenever code is pushed to `main`. After the repository is created, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions**. The site URL will be `https://<owner>.github.io/<repository>/`.
+
+The charts, version selector, result tables, and other browser interactions run on the published site. GitHub Pages does not run the Python prediction API. The upload-and-predict demo connects to `http://127.0.0.1:8000` when the site is opened locally; a hosted prediction service would need its own deployment and a `window.VMRD_API_URL` setting.
 
 ## References and licensing
 

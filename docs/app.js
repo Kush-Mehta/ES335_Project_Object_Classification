@@ -66,16 +66,32 @@ document.querySelectorAll("[data-count-mode]").forEach(button=>button.addEventLi
 }));
 renderClassCounts();
 
-// HOG direction illustration. The nine unsigned bins cover 0 to 180 degrees.
+// HOG direction illustration: the edge is fixed; the arrow shows its gradient projection.
 const orientation=document.querySelector("#orientation");
-if (orientation) orientation.addEventListener("input",()=>{
-  const bin=Number(orientation.value);
-  const degrees=10+20*bin;
-  document.querySelector("#orientation-value").value=`${degrees}°`;
-  document.querySelector("#svg-angle").textContent=`${degrees}°`;
-  document.querySelector("#orientation-explanation").textContent=`Direction bin ${bin+1} represents an edge-gradient angle near ${degrees}°. HOG places edge strength into nearby direction bins inside each small image cell.`;
-  document.querySelector("#gradient-arrow").setAttribute("transform",`rotate(${degrees-45} 83 88)`);
-});
+if(orientation){
+  const edgeAngle= Math.atan2(142,150)*180/Math.PI;
+  const strongestGradientAngle=edgeAngle+90;
+  function updateHogDirection(){
+    const bin=Number(orientation.value),degrees=10+20*bin;
+    const radians=degrees*Math.PI/180;
+    const response=Math.abs(Math.cos((degrees-strongestGradientAngle)*Math.PI/180));
+    const strength=Math.round(response*100);
+    document.querySelector("#orientation-value").value=`${degrees}°`;
+    document.querySelector("#svg-angle").textContent=`${degrees}°`;
+    document.querySelector("#svg-strength").textContent=`${strength}%`;
+    const arrow=document.querySelector("#gradient-arrow"),cx=83,cy=88,length=49;
+    arrow.setAttribute("x1",cx);arrow.setAttribute("y1",cy);
+    arrow.setAttribute("x2",cx+Math.cos(radians)*length);
+    arrow.setAttribute("y2",cy-Math.sin(radians)*length);
+    document.querySelector("#orientation-explanation").textContent=strength>=90
+      ?`The arrow crosses the fixed edge almost perpendicularly. Brightness changes strongly along this direction (${strength}% of the illustration’s maximum).`
+      :strength<=10
+        ?`The arrow runs almost along the fixed edge. There is very little brightness change in this direction (${strength}% of the illustration’s maximum).`
+        :`The arrow crosses the edge at an angle, so brightness changes partly along this direction (${strength}% of the illustration’s maximum).`;
+  }
+  orientation.addEventListener("input",updateHogDirection);
+  updateHogDirection();
+}
 
 // Metric guide: a small selection explains the statistical terms where they appear.
 const metricCopy={
@@ -154,8 +170,8 @@ function applyResultsVersion(version){
   resultsVersion=version==="v2"&&v2Report?"v2":"v1";
   if(resultsVersion==="v1"){
     Object.assign(results,JSON.parse(JSON.stringify(v1Results)));
-    document.querySelector("#results-version-note").textContent="V1 results: directly stretched crops and a single concatenated HOG + HSV feature vector.";
-    document.querySelector("#finding-notes").innerHTML='<article><b>01 · CUP AND CANS</b><p>These cylindrical classes are a recurring source of confusion. Similar outlines and metallic or printed surfaces can make their edge-and-color descriptions overlap.</p></article><article><b>02 · STAPLERS</b><p>In v1, Random Forest missed 30 of 127 staplers (false-negative rate 23.62%). Logistic Regression missed 10 (7.87%); SVM missed 14 (11.02%).</p></article><article><b>03 · APPLES</b><p>Apples had a low miss rate in these held-out results. Color may help, but these numbers do not isolate which visual clue caused a prediction.</p></article>';
+    document.querySelector("#results-version-note").textContent="V1 stretched every crop and combined HOG and HSV features in one vector.";
+    document.querySelector("#finding-notes").innerHTML='<article><b>01 · CUP AND CANS</b><p>These cylindrical classes were recurring sources of confusion. Similar outlines and metallic or printed surfaces could make their edge-and-color descriptions overlap.</p></article><article><b>02 · STAPLERS</b><p>On the fixed held-out VMRD test set, v1 Random Forest missed 30 of 127 staplers (23.62%). Logistic Regression missed 10 (7.87%) and SVM missed 14 (11.02%). These benchmark counts are separate from the small exploratory checks on real photographs.</p></article><article><b>03 · APPLES</b><p>Apples had a low miss rate in these held-out results. Color may help, but these numbers did not isolate which visual clue caused a prediction.</p></article>';
   }else{
     const map={lr:"Logistic_Regression",svm:"SVM_RBF",rf:"Random_Forest"};
     for(const [key,reportKey] of Object.entries(map)){
@@ -164,8 +180,8 @@ function applyResultsVersion(version){
       document.querySelector(`#score-${key}`).textContent=percent(m.accuracy,2);
       document.querySelector(`#score-${key}-sub`).textContent=`test accuracy · macro-F1 ${number(m.macro_f1,4)}`;
     }
-    document.querySelector("#results-version-note").textContent="V2 results: original-shape-preserving letterbox preprocessing and separately scaled HOG/color classifiers with probability fusion.";
-    document.querySelector("#finding-notes").innerHTML='<article><b>01 · OVERALL ACCURACY</b><p>SVM and Random Forest each reached 92.00% accuracy on the held-out crops. Their per-class errors differ, so the class-level view still matters.</p></article><article><b>02 · STAPLERS</b><p>V2 SVM has the lowest stapler miss rate: 7.09%, or 9 of 127 staplers. Random Forest misses 13 (10.24%) and Logistic Regression misses 15 (11.81%).</p></article><article><b>03 · WHAT IMPROVED</b><p>Random Forest rose from 88.31% to 92.00% accuracy, while its stapler false-negative rate fell from 23.62% to 10.24%. Both preprocessing and fusion changed, so the comparison cannot attribute the gain to one change alone.</p></article>';
+    document.querySelector("#results-version-note").textContent="V2 preserved crop shape and fused separate HOG and color model scores.";
+    document.querySelector("#finding-notes").innerHTML='<article><b>01 · OVERALL ACCURACY</b><p>SVM and Random Forest each reached 92.00% accuracy on the held-out crops. Their per-class errors differed, so the class-level view still mattered.</p></article><article><b>02 · STAPLERS</b><p>On the fixed VMRD test set, v2 SVM had the lowest stapler miss rate across the two versions: 9 of 127 (7.09%). V2 Random Forest missed 13 (10.24%) and Logistic Regression missed 15 (11.81%). The separate real-photo checks motivated this investigation; they were exploratory and were not included in these benchmark metrics.</p></article><article><b>03 · WHAT IMPROVED</b><p>Random Forest rose from 88.31% to 92.00% accuracy, while its stapler false-negative rate fell from 23.62% to 10.24%. Both preprocessing and fusion changed, so the comparison could not attribute the gain to one change alone.</p></article>';
   }
   for(const key of ["lr","svm","rf"]){
     if(resultsVersion==="v1"){
@@ -193,19 +209,35 @@ function loadRejectionData(){
       if(resultsVersion==="v1")return window.VMRD_V1_REJECTION;
       return Object.fromEntries(Object.entries(v2Report.models).map(([key,model])=>[key,{thresholds:model.thresholds,coverage:model.coverage,accuracy:model.accepted_accuracy}]));
     }
-    function show(){
+    function allData(){
+      const v1=window.VMRD_V1_REJECTION;
+      const v2=Object.fromEntries(Object.entries(v2Report.models).map(([key,model])=>[key,{thresholds:model.thresholds,coverage:model.coverage,accuracy:model.accepted_accuracy}]));
+      return {v1,v2};
+    }
+    function referenceIndex(series){
+      const valid=series.thresholds.map((t,i)=>({t,c:series.coverage[i],a:series.accuracy[i],i})).filter(p=>p.a!==null);
+      if(!valid.length)return 0;
+      const highestAccuracy=Math.max(...valid.map(p=>p.a));
+      const plateauEdge=valid.filter(p=>Math.abs(p.a-highestAccuracy)<1e-9).reduce((best,p)=>p.c>best.c?p:best);
+      return plateauEdge.i;
+    }
+    function show(resetToReference=true){
       const data=currentData();
-      const summaryRows=Object.entries(data).map(([key,series])=>{
-      let index=0;for(let i=1;i<series.thresholds.length;i++)if(Math.abs(series.thresholds[i]-.8)<Math.abs(series.thresholds[index]-.8))index=i;
-      return `<tr><td>${displayNames[key]||key}</td><td>${percent(series.coverage[index])}</td><td>${series.accuracy[index]===null?"—":percent(series.accuracy[index])}</td></tr>`;
-      }).join("");
-      document.querySelector("#threshold-summary").innerHTML=`<table><thead><tr><th>Model</th><th>Coverage</th><th>Accuracy on accepted</th></tr></thead><tbody>${summaryRows}</tbody></table>`;
+      const both=allData();
+      const summaryRows=Object.entries(both).flatMap(([version,versionData])=>Object.entries(versionData).map(([key,series])=>{
+        const ref=series.thresholds[referenceIndex(series)];
+        const ri=referenceIndex(series);
+        const full=series.thresholds.map((t,i)=>({t,c:series.coverage[i],a:series.accuracy[i]})).reduce((best,p)=>p.c>best.c?p:best);
+        return `<tr><td>${version.toUpperCase()}</td><td>${displayNames[key]||key}</td><td>${number(ref,2)}</td><td>${percent(series.coverage[ri])}</td><td>${percent(series.accuracy[ri])}</td><td>${percent(full.a)}</td></tr>`;
+      })).join("");
+      document.querySelector("#threshold-summary").innerHTML=`<div class="table-scroll"><table><thead><tr><th>Version</th><th>Model</th><th>Threshold at plateau edge</th><th>Coverage at plateau edge</th><th>Accuracy at plateau edge</th><th>Accuracy at 100% coverage</th></tr></thead><tbody>${summaryRows}</tbody></table></div>`;
       const series=data[document.querySelector("#curve-model").value];
+      if(resetToReference)slider.value=series.thresholds[referenceIndex(series)];
       if(!series?.thresholds?.length)throw new Error("series not found");
       const desired=Number(slider.value);let idx=0;
       for(let i=1;i<series.thresholds.length;i++)if(Math.abs(series.thresholds[i]-desired)<Math.abs(series.thresholds[idx]-desired))idx=i;
       const points=series.thresholds.map((t,i)=>({t,c:series.coverage[i],a:series.accuracy[i]}));
-      const W=740,H=280,L=58,R=18,T=18,B=44;
+      const W=740,H=340,L=58,R=18,T=18,B=100;
       const x=v=>L+v*(W-L-R), y=v=>T+(1-v)*(H-T-B);
       const axes=`<line x1="${L}" y1="${y(0)}" x2="${W-R}" y2="${y(0)}"/><line x1="${L}" y1="${y(0)}" x2="${L}" y2="${y(1)}"/>`;
       const grid=[0,.25,.5,.75,1].map(v=>`<line class="gridline" x1="${L}" y1="${y(v)}" x2="${W-R}" y2="${y(v)}"/><text x="${L-10}" y="${y(v)+4}" text-anchor="end">${Math.round(v*100)}%</text>`).join("");
@@ -213,15 +245,15 @@ function loadRejectionData(){
       const acceptedAccuracy=points.filter(p=>p.a!==null).map(p=>`${x(p.c)},${y(p.a)}`).join(" ");
       const point=points[idx];
       const selectedDot=point.a===null?"":`<circle class="selection-dot" cx="${x(point.c)}" cy="${y(point.a)}" r="6"/>`;
-      note.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${resultsVersion.toUpperCase()} held-out rejection curve: accuracy on accepted examples versus coverage. The selected confidence threshold is highlighted."><g class="chart-axis">${grid}${xGrid}${axes}<text x="${(L+W-R)/2}" y="${H-8}" text-anchor="middle">Coverage: fraction of held-out crops accepted</text><text transform="translate(17 ${(T+H-B)/2}) rotate(-90)" text-anchor="middle">Accuracy among accepted crops</text></g><polyline class="accepted-line" points="${acceptedAccuracy}"/><circle class="selection-dot" cx="${x(point.c)}" cy="${point.a===null?y(0):y(point.a)}" r="6"/><g class="legend"><line x1="88" y1="${H-27}" x2="112" y2="${H-27}" class="accepted-line"/><text x="119" y="${H-23}">${document.querySelector("#curve-model").selectedOptions[0].text} · ${resultsVersion.toUpperCase()} held-out set</text></g></svg>`;
+      note.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${resultsVersion.toUpperCase()} held-out rejection curve: accuracy on accepted examples versus coverage. The selected confidence threshold is highlighted."><g class="chart-axis">${grid}${xGrid}${axes}<text x="${(L+W-R)/2}" y="${H-57}" text-anchor="middle">Coverage: fraction of held-out crops accepted</text><text transform="translate(17 ${(T+H-B)/2}) rotate(-90)" text-anchor="middle">Accuracy among accepted crops</text></g><polyline class="accepted-line" points="${acceptedAccuracy}"/><circle class="selection-dot" cx="${x(point.c)}" cy="${point.a===null?y(0):y(point.a)}" r="6"/><g class="legend"><line x1="88" y1="${H-25}" x2="112" y2="${H-25}" class="accepted-line"/><text x="119" y="${H-21}">${document.querySelector("#curve-model").selectedOptions[0].text} · ${resultsVersion.toUpperCase()} held-out set</text></g></svg>`;
       label.value=number(point.t,2);
       output.textContent=point.a==null?`Threshold ${number(point.t,2)} accepts ${percent(point.c)} of test crops; no accepted cases are available to calculate accuracy.`:`At threshold ${number(point.t,2)}, coverage is ${percent(point.c)} and accuracy among accepted crops is ${percent(point.a)}.`;
     }
     slider.disabled=false;
-    slider.addEventListener("input",show);
-    document.querySelector("#curve-model").addEventListener("change",show);
-    window.renderRejectionVersion=show;
-    show();
+    slider.addEventListener("input",()=>show(false));
+    document.querySelector("#curve-model").addEventListener("change",()=>show(true));
+    window.renderRejectionVersion=()=>show(true);
+    show(true);
   }catch{
     note.innerHTML="<p>The exact held-out threshold data could not be loaded.</p>";
   }
