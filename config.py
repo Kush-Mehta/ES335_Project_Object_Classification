@@ -18,3 +18,7 @@ FIGURES_DIR = RESULTS_DIR / "figures"
 WEB_DATA_DIR = ROOT / "docs" / "data"
 PARAMS_PATH = RESULTS_DIR / "best_params.json"
 TARGET_CLASSES = ("cup", "toothpaste", "cans", "apple", "stapler")
+# --- NEW: letterbox preprocessing + two-stream features ---
+PREPROCESSED_V2_DIR = FILTERED_DIR / "Preprocessed_v2"
+FEATURES_HOG_PATH   = FILTERED_DIR / "features_hog.npy"
+FEATURES_COLOR_PATH = FILTERED_DIR / "features_color.npy"

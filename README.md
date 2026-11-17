@@ -1,6 +1,6 @@
 # Classical ML for Object Classification
 
-This project compares Logistic Regression, an RBF Support Vector Machine, and Random Forest using shape and color features from cropped VMRD objects.
+This project studies two versions of a five-class VMRD object classifier. Pipeline v1 concatenated shape and color features; pipeline v2 preserves crop proportions and combines separate HOG and color classifiers. The interactive website shows both versions, with v2 as the current result and prediction pipeline.
 
 ## Problem and scope
 
@@ -25,7 +25,7 @@ pip install -r requirements.txt
 
 ## Rebuild and run order
 
-Run from the repository root after the dataset is in place:
+The original numbered scripts reproduce pipeline v1, the first working baseline:
 
 1. `python src/01_count_classes.py` - count object instances in the raw annotations.
 2. `python src/02_filter_data.py` - copy scenes and XML files that contain a target class.
@@ -37,21 +37,36 @@ Run from the repository root after the dataset is in place:
 8. `python src/08_final_evaluation.py` - fit tuned models on the training pool and evaluate the held-out test crops; save confusion matrices, a rejection-curve figure, `results/rejection_data.json`, and a copy for the website in `docs/data/`.
 9. `python src/09_error_analysis.py` - save per-class precision, recall, F1, false-positive rate, and false-negative rate.
 
-The 128 by 128 size gives every crop the same image dimensions, so HOG yields equal-length vectors. The grayscale copy receives CLAHE before HOG measures brightness-edge directions; the separate color copy is converted to HSV for a color histogram. The provided scripts fit `StandardScaler` on the training pool and apply it to the held-out test set. They fit the scaler before the training-pool cross-validation folds, so fold validation examples contribute to scaling statistics; this is a limitation of the supplied CV implementation. The held-out test set does not contribute to fitting the scaler.
+The 128 by 128 size gives every crop the same image dimensions, so HOG yields equal-length vectors. The grayscale copy receives CLAHE before HOG measures brightness-edge directions; the separate color copy is converted to HSV for a color histogram. In v1, the script fit `StandardScaler` on the training pool and applied it to the held-out test set, but it fit that scaler before the CV folds, so fold validation examples contributed to scaling statistics. V2 fixes this during hyperparameter tuning by fitting separate scalers within each fold. In both versions, held-out test images do not contribute to scaler fitting.
+
+## Pipeline v2: revised preprocessing and two-stream fusion
+
+Run these after steps 1–3 above have created the target object crops and manifest:
+
+1. `python src/04b_preprocess_v2.py` - pad the shorter crop dimension with replicated edge pixels, preserving shape, then resize uniformly to 128 × 128 and create the color and grayscale-plus-CLAHE views.
+2. `python src/05b_extract_features_twostream.py` - save HOG (8,100 values) and HSV color (512 values) separately.
+3. `python src/06b_train_twostream.py` - compare the separate streams with the baseline settings on the training pool.
+4. `python src/07b_tune_twostream.py` - tune model settings and HOG fusion weight alpha using five-fold stratified cross-validation. Each fold fits its own stream scalers on that fold's training portion.
+5. `python src/08b_final_evaluation_twostream.py` - fit the selected streams on the training pool and evaluate the fixed held-out test set; save v2 confusion matrices and the rejection curve.
+6. `python src/09b_error_analysis_twostream.py` - write per-class v2 precision, recall, F1, FPR, and FNR.
+7. `python src/10b_export_model_twostream.py` - export the two stream models, their scalers, and label encoder for local prediction. These inference artifacts use the training pool and do not replace the held-out evaluation.
+8. `python src/11b_build_web_results_twostream.py` - compute exact v2 heatmap and rejection-curve data from the exported models on the same fixed 838-crop test split; write JSON and browser-ready data files.
+
+V2 has separate scaler/model pairs for HOG and color. At prediction time it combines their class probabilities as `alpha × HOG + (1 − alpha) × color`; all three selected alpha values are 0.5.
 
 ## Results
 
-Held-out accuracy is 0.9177 for Logistic Regression, 0.9177 for the RBF SVM, and 0.8831 for Random Forest. The [interactive project website](docs/index.html) explains the features, evaluation, class-level errors, limitations, and prediction API.
+On the held-out 838 crops, v2 accuracy is 0.9153 for Logistic Regression, 0.9200 for the RBF SVM, and 0.9200 for Random Forest. The original v1 results were 0.9177, 0.9177, and 0.8831 respectively. Random Forest's stapler false-negative rate fell from 23.62% in v1 to 10.24% in v2; SVM has the best v2 stapler recall (92.91%). These changes show a useful result on this fixed split, but because preprocessing, stream architecture, and tuning changed together, the comparison cannot assign the gains to only one change. The [interactive project website](docs/index.html) explains the versions, data, evaluation, class-level errors, limitations, and v2 prediction API.
 
 ## Probability scores and thresholding
 
-Logistic Regression returns softmax probabilities. Random Forest averages class fractions at the reached leaves, which is vote-like and is not guaranteed to be calibrated. An SVM's raw output is a distance from a separating boundary, not a probability; `CalibratedClassifierCV(method="sigmoid", cv=5)` applies Platt scaling using training-pool folds. The rejection rule compares the selected model's highest class score with a threshold. Since score calibration differs, the same threshold does not have identical meaning across models.
+In v2, Logistic Regression and SVM outputs are sigmoid-calibrated inside each stream using three-fold calibration; Random Forest supplies tree-vote probabilities. The HOG and color scores are then blended. Calibration makes the scores usable for fusion, but it does not guarantee perfect probability calibration. The rejection rule compares the highest fused score with a threshold. Since score calibration differs, the same threshold does not have identical meaning across models.
 
-The demo expects one cropped object like the training samples. Its browser crop tool sends only the selected crop. Its "GRASP" badge is an identity-confidence gate, not a grasp-pose or physical-feasibility prediction.
+The demo uses the v2 stream models and letterbox preprocessing. Its browser crop tool sends only the selected crop. Its "GRASP" badge is an identity-confidence gate, not a grasp-pose or physical-feasibility prediction.
 
 ## Demo API
 
-1. With the features available, run `python src/10_export_model.py` to train demo artifacts on all labelled examples. These artifacts are for inference only and do not replace the reported held-out test results.
+1. Build the v2 features and parameters, then run `python src/10b_export_model_twostream.py` to train/export the HOG and color demo models on the training pool. These artifacts are for inference only and do not replace the reported held-out test results.
 2. Install `backend/requirements.txt`, change to `backend/`, and run `uvicorn app:app --reload`.
 3. A localhost website preview uses `http://127.0.0.1:8000` automatically. For a hosted backend, define `window.VMRD_API_URL` before `app.js` loads in `docs/index.html`.
 
@@ -61,7 +76,7 @@ Example request:
 curl -X POST -F "image=@crop.jpg" -F "model=svm" -F "threshold=0.80" http://localhost:8000/predict
 ```
 
-The endpoint accepts `svm`, `lr`, or `rf` and returns the selected prediction, confidence, all five class scores, and threshold decision. Its `/docs` page provides the generated API schema. The exported model files are generated locally and ignored by Git; no hosted endpoint is configured yet.
+The endpoint accepts `svm`, `lr`, or `rf` and returns the v2 fused prediction, confidence, all five class scores, fusion weight, and threshold decision. Its `/docs` page provides the generated API schema. The exported model files are generated locally and ignored by Git; no hosted endpoint is configured yet.
 
 ## Repository map
 
@@ -76,7 +91,7 @@ Large data files, generated feature arrays, and model artifacts are excluded by 
 
 ## AI-use disclosure
 
-Codex assisted with repository organization, portable paths, and drafting the README, website, and API implementation. The dataset, pipeline facts, existing metrics, and model-selection results came from the supplied project brief and project artifacts. The existing held-out scores were transcribed from the saved result report; the website does not estimate new test scores from the plots. The student should review the code and be prepared to explain its choices and limitations.
+Codex assisted with repository organization, portable paths, and drafting the README, website, and API implementation. The dataset and pipeline facts come from the supplied project artifacts. V1 held-out metrics come from the saved report; v2 metrics and interactive chart data are computed from the exported v2 models on the fixed held-out split, not estimated from plots. The student should review the code and be prepared to explain its choices and limitations.
 
 ## References and licensing
 

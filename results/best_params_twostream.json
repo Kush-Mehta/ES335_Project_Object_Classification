@@ -1,0 +1,26 @@
+{
+  "LogisticRegression": {
+    "params": {
+      "C": 0.1
+    },
+    "alpha": 0.5,
+    "cv_acc": 0.9217910447761193
+  },
+  "SVM_RBF": {
+    "params": {
+      "C": 10,
+      "gamma": "scale"
+    },
+    "alpha": 0.5,
+    "cv_acc": 0.9247761194029851
+  },
+  "RandomForest": {
+    "params": {
+      "n_estimators": 300,
+      "max_depth": 20,
+      "min_samples_leaf": 1
+    },
+    "alpha": 0.5,
+    "cv_acc": 0.9262686567164179
+  }
+}

@@ -40,6 +40,9 @@ const results = {
     ]
   }
 };
+const v1Results = JSON.parse(JSON.stringify(results));
+const v2Report = window.VMRD_V2_RESULTS;
+let resultsVersion = v2Report ? "v2" : "v1";
 
 const number = (x, digits=2) => Number(x).toFixed(digits);
 const percent = (x, digits=1) => `${(x*100).toFixed(digits)}%`;
@@ -130,6 +133,7 @@ document.querySelectorAll("[data-matrix-mode]").forEach(button=>button.addEventL
   matrixMode=button.dataset.matrixMode;
   document.querySelectorAll("[data-matrix-mode]").forEach(b=>b.classList.toggle("active",b===button));renderMatrix();
 }));
+document.querySelector("#matrix-model").value="svm";
 renderMatrix();
 
 // Small, data-backed model comparison; the selector switches the measured quantity.
@@ -141,29 +145,61 @@ function renderComparison(){
   let axis=document.querySelector("#comparison-axis");
   if(!axis){axis=document.createElement("p");axis.id="comparison-axis";axis.className="chart-foot";document.querySelector("#model-comparison").before(axis);}
   document.querySelector("#model-comparison").innerHTML=values.map(item=>`<div class="compare-row"><span>${modelNames[item.key]}</span><div class="compare-track"><i style="width:${((item.value-minimum)/(maximum-minimum)*100).toFixed(2)}%"></i></div><b>${number(item.value,4)}</b></div>`).join("");
-  document.querySelector("#comparison-explanation").textContent=metric==="accuracy"?"Accuracy is the share of all 838 held-out crops labelled correctly.":"Macro-F1 averages the five per-class F1 scores equally. The displayed values come from the saved held-out report.";
+  document.querySelector("#comparison-explanation").textContent=metric==="accuracy"?`Accuracy is the share of all 838 held-out crops labelled correctly (${resultsVersion.toUpperCase()} results).`:`Macro-F1 averages the five per-class F1 scores equally. These are the ${resultsVersion.toUpperCase()} held-out results.`;
   axis.textContent="Scale: 0.00 to 1.00 (0% to 100%); bar lengths start at zero.";
 }
 document.querySelector("#comparison-metric").addEventListener("change",renderComparison);renderComparison();
 
-// Optional exact threshold series. The page never estimates values from a PNG.
-async function loadRejectionData(){
+function applyResultsVersion(version){
+  resultsVersion=version==="v2"&&v2Report?"v2":"v1";
+  if(resultsVersion==="v1"){
+    Object.assign(results,JSON.parse(JSON.stringify(v1Results)));
+    document.querySelector("#results-version-note").textContent="V1 results: directly stretched crops and a single concatenated HOG + HSV feature vector.";
+    document.querySelector("#finding-notes").innerHTML='<article><b>01 · CUP AND CANS</b><p>These cylindrical classes are a recurring source of confusion. Similar outlines and metallic or printed surfaces can make their edge-and-color descriptions overlap.</p></article><article><b>02 · STAPLERS</b><p>In v1, Random Forest missed 30 of 127 staplers (false-negative rate 23.62%). Logistic Regression missed 10 (7.87%); SVM missed 14 (11.02%).</p></article><article><b>03 · APPLES</b><p>Apples had a low miss rate in these held-out results. Color may help, but these numbers do not isolate which visual clue caused a prediction.</p></article>';
+  }else{
+    const map={lr:"Logistic_Regression",svm:"SVM_RBF",rf:"Random_Forest"};
+    for(const [key,reportKey] of Object.entries(map)){
+      const m=v2Report.models[reportKey];
+      results[key]={accuracy:m.accuracy,macro:m.macro_f1,matrix:m.matrix,rows:m.rows};
+      document.querySelector(`#score-${key}`).textContent=percent(m.accuracy,2);
+      document.querySelector(`#score-${key}-sub`).textContent=`test accuracy · macro-F1 ${number(m.macro_f1,4)}`;
+    }
+    document.querySelector("#results-version-note").textContent="V2 results: original-shape-preserving letterbox preprocessing and separately scaled HOG/color classifiers with probability fusion.";
+    document.querySelector("#finding-notes").innerHTML='<article><b>01 · OVERALL ACCURACY</b><p>SVM and Random Forest each reached 92.00% accuracy on the held-out crops. Their per-class errors differ, so the class-level view still matters.</p></article><article><b>02 · STAPLERS</b><p>V2 SVM has the lowest stapler miss rate: 7.09%, or 9 of 127 staplers. Random Forest misses 13 (10.24%) and Logistic Regression misses 15 (11.81%).</p></article><article><b>03 · WHAT IMPROVED</b><p>Random Forest rose from 88.31% to 92.00% accuracy, while its stapler false-negative rate fell from 23.62% to 10.24%. Both preprocessing and fusion changed, so the comparison cannot attribute the gain to one change alone.</p></article>';
+  }
+  for(const key of ["lr","svm","rf"]){
+    if(resultsVersion==="v1"){
+      document.querySelector(`#score-${key}`).textContent=percent(results[key].accuracy,2);
+      document.querySelector(`#score-${key}-sub`).textContent=`test accuracy · macro-F1 ${number(results[key].macro,4)}`;
+    }
+  }
+  document.querySelector("#results-version").value=resultsVersion;
+  renderMatrix();renderComparison();
+  if(window.renderRejectionVersion)window.renderRejectionVersion();
+}
+document.querySelector("#results-version").addEventListener("change",event=>applyResultsVersion(event.target.value));
+
+// Exact threshold series from saved held-out predictions for both versions.
+function loadRejectionData(){
   const slider=document.querySelector("#curve-threshold");
   const note=document.querySelector("#rejection-plot");
   const label=document.querySelector("#curve-threshold-value");
   const output=document.querySelector("#curve-point");
+  document.querySelector("#curve-model").value="SVM_RBF";
   try{
-    const response=await fetch("data/rejection_data.json");
-    if(!response.ok)throw new Error("missing exact threshold data");
-    const data=await response.json();
+    if(!window.VMRD_V1_REJECTION||!v2Report?.models)throw new Error("missing exact result data");
     const displayNames={Logistic_Regression:"Logistic Regression",SVM_RBF:"SVM (RBF)",Random_Forest:"Random Forest"};
-    const summaryRows=Object.entries(data).map(([key,series])=>{
+    function currentData(){
+      if(resultsVersion==="v1")return window.VMRD_V1_REJECTION;
+      return Object.fromEntries(Object.entries(v2Report.models).map(([key,model])=>[key,{thresholds:model.thresholds,coverage:model.coverage,accuracy:model.accepted_accuracy}]));
+    }
+    function show(){
+      const data=currentData();
+      const summaryRows=Object.entries(data).map(([key,series])=>{
       let index=0;for(let i=1;i<series.thresholds.length;i++)if(Math.abs(series.thresholds[i]-.8)<Math.abs(series.thresholds[index]-.8))index=i;
       return `<tr><td>${displayNames[key]||key}</td><td>${percent(series.coverage[index])}</td><td>${series.accuracy[index]===null?"—":percent(series.accuracy[index])}</td></tr>`;
-    }).join("");
-    document.querySelector("#threshold-summary").innerHTML=`<table><thead><tr><th>Model</th><th>Coverage</th><th>Accuracy on accepted</th></tr></thead><tbody>${summaryRows}</tbody></table>`;
-    slider.disabled=false;
-    function show(){
+      }).join("");
+      document.querySelector("#threshold-summary").innerHTML=`<table><thead><tr><th>Model</th><th>Coverage</th><th>Accuracy on accepted</th></tr></thead><tbody>${summaryRows}</tbody></table>`;
       const series=data[document.querySelector("#curve-model").value];
       if(!series?.thresholds?.length)throw new Error("series not found");
       const desired=Number(slider.value);let idx=0;
@@ -177,18 +213,21 @@ async function loadRejectionData(){
       const acceptedAccuracy=points.filter(p=>p.a!==null).map(p=>`${x(p.c)},${y(p.a)}`).join(" ");
       const point=points[idx];
       const selectedDot=point.a===null?"":`<circle class="selection-dot" cx="${x(point.c)}" cy="${y(point.a)}" r="6"/>`;
-      note.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Held-out rejection curve: accuracy on accepted examples versus coverage. The selected confidence threshold is highlighted."><g class="chart-axis">${grid}${xGrid}${axes}<text x="${(L+W-R)/2}" y="${H-8}" text-anchor="middle">Coverage: fraction of held-out crops accepted</text><text transform="translate(17 ${(T+H-B)/2}) rotate(-90)" text-anchor="middle">Accuracy among accepted crops</text></g><polyline class="accepted-line" points="${acceptedAccuracy}"/>${selectedDot}<g class="legend"><line x1="88" y1="${H-27}" x2="112" y2="${H-27}" class="accepted-line"/><text x="119" y="${H-23}">${document.querySelector("#curve-model").selectedOptions[0].text} · held-out set</text></g></svg>`;
+      note.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${resultsVersion.toUpperCase()} held-out rejection curve: accuracy on accepted examples versus coverage. The selected confidence threshold is highlighted."><g class="chart-axis">${grid}${xGrid}${axes}<text x="${(L+W-R)/2}" y="${H-8}" text-anchor="middle">Coverage: fraction of held-out crops accepted</text><text transform="translate(17 ${(T+H-B)/2}) rotate(-90)" text-anchor="middle">Accuracy among accepted crops</text></g><polyline class="accepted-line" points="${acceptedAccuracy}"/><circle class="selection-dot" cx="${x(point.c)}" cy="${point.a===null?y(0):y(point.a)}" r="6"/><g class="legend"><line x1="88" y1="${H-27}" x2="112" y2="${H-27}" class="accepted-line"/><text x="119" y="${H-23}">${document.querySelector("#curve-model").selectedOptions[0].text} · ${resultsVersion.toUpperCase()} held-out set</text></g></svg>`;
       label.value=number(point.t,2);
       output.textContent=point.a==null?`Threshold ${number(point.t,2)} accepts ${percent(point.c)} of test crops; no accepted cases are available to calculate accuracy.`:`At threshold ${number(point.t,2)}, coverage is ${percent(point.c)} and accuracy among accepted crops is ${percent(point.a)}.`;
     }
+    slider.disabled=false;
     slider.addEventListener("input",show);
     document.querySelector("#curve-model").addEventListener("change",show);
+    window.renderRejectionVersion=show;
     show();
   }catch{
-    note.innerHTML="<p>Exact per-threshold arrays are not in the current results folder. This chart will use the real held-out model scores after the evaluation script writes <code>results/rejection_data.json</code>; values are not estimated from the saved image.</p>";
+    note.innerHTML="<p>The exact held-out threshold data could not be loaded.</p>";
   }
 }
 loadRejectionData();
+applyResultsVersion(resultsVersion);
 
 // Keep a fixed square input frame. Visitors can pan the source image and
 // stretch it independently in each direction, matching training's 128×128 input.
@@ -196,8 +235,7 @@ const upload=document.querySelector("#upload");
 const cropCanvas=document.querySelector("#crop-canvas");
 const cropCtx=cropCanvas.getContext("2d");
 const cropPlaceholder=document.querySelector("#crop-placeholder");
-const scaleX=document.querySelector("#scale-x");
-const scaleY=document.querySelector("#scale-y");
+const imageScale=document.querySelector("#image-scale");
 const resetImage=document.querySelector("#reset-image");
 const predictButton=document.querySelector("#predict");
 const apiStatus=document.querySelector("#api-status");
@@ -209,26 +247,43 @@ function drawImageTo(ctx,size){
   ctx.clearRect(0,0,size,size);
   if(!sourceImage)return;
   const factor=size/frameSize;
-  const w=sourceImage.naturalWidth*baseFit*(Number(scaleX.value)/100)*size/300;
-  const h=sourceImage.naturalHeight*baseFit*(Number(scaleY.value)/100)*size/300;
-  ctx.drawImage(sourceImage,(size-w)/2+offsetX*factor,(size-h)/2+offsetY*factor,w,h);
+  const w=sourceImage.naturalWidth*baseFit*(Number(imageScale.value)/100)*size/300;
+  const h=sourceImage.naturalHeight*baseFit*(Number(imageScale.value)/100)*size/300;
+  const x=(size-w)/2+offsetX*factor,y=(size-h)/2+offsetY*factor;
+  ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";
+  ctx.drawImage(sourceImage,x,y,w,h);
+  // For a contained, non-square crop, extend edge pixels into the unused frame
+  // area as BORDER_REPLICATE does in the model's v2 preprocessing.
+  if(h<=size&&y>=0&&y+h<=size){
+    if(y>0)ctx.drawImage(sourceImage,0,0,sourceImage.naturalWidth,1,x,0,w,y);
+    if(y+h<size)ctx.drawImage(sourceImage,0,sourceImage.naturalHeight-1,sourceImage.naturalWidth,1,x,y+h,w,size-y-h);
+  }
+  if(w<=size&&x>=0&&x+w<=size){
+    if(x>0)ctx.drawImage(sourceImage,0,0,1,sourceImage.naturalHeight,0,y,x,h);
+    if(x+w<size)ctx.drawImage(sourceImage,sourceImage.naturalWidth-1,0,1,sourceImage.naturalHeight,x+w,y,size-x-w,h);
+  }
+  if(w<=size&&h<=size&&x>=0&&y>=0&&x+w<=size&&y+h<=size){
+    if(x>0&&y>0)ctx.drawImage(sourceImage,0,0,1,1,0,0,x,y);
+    if(x+w<size&&y>0)ctx.drawImage(sourceImage,sourceImage.naturalWidth-1,0,1,1,x+w,0,size-x-w,y);
+    if(x>0&&y+h<size)ctx.drawImage(sourceImage,0,sourceImage.naturalHeight-1,1,1,0,y+h,x,size-y-h);
+    if(x+w<size&&y+h<size)ctx.drawImage(sourceImage,sourceImage.naturalWidth-1,sourceImage.naturalHeight-1,1,1,x+w,y+h,size-x-w,size-y-h);
+  }
 }
 function renderCrop(){
   drawImageTo(cropCtx,frameSize);
-  document.querySelector("#scale-x-value").value=`${scaleX.value}%`;
-  document.querySelector("#scale-y-value").value=`${scaleY.value}%`;
+  document.querySelector("#image-scale-value").value=`${imageScale.value}%`;
 }
 function fitImage(){
   if(!sourceImage)return;
   baseFit=300/Math.max(sourceImage.naturalWidth,sourceImage.naturalHeight);
-  scaleX.value="100";scaleY.value="100";offsetX=0;offsetY=0;renderCrop();
+  imageScale.value="100";offsetX=0;offsetY=0;renderCrop();
 }
 function setImageFile(file){
   if(!file)return;
   const image=new Image();
   image.onload=()=>{
     sourceImage=image;cropPlaceholder.hidden=true;
-    scaleX.disabled=false;scaleY.disabled=false;resetImage.disabled=false;predictButton.disabled=false;
+    imageScale.disabled=false;resetImage.disabled=false;predictButton.disabled=false;
     fitImage();prediction.hidden=true;document.querySelector("#prediction-empty").hidden=false;
     apiStatus.textContent="Image ready. Adjust it inside the fixed 128 × 128 frame, then predict.";
   };
@@ -236,7 +291,7 @@ function setImageFile(file){
   image.src=URL.createObjectURL(file);
 }
 upload.addEventListener("change",()=>setImageFile(upload.files?.[0]));
-for(const control of [scaleX,scaleY])control.addEventListener("input",renderCrop);
+imageScale.addEventListener("input",renderCrop);
 resetImage.addEventListener("click",fitImage);
 cropCanvas.addEventListener("pointerdown",event=>{if(!sourceImage)return;dragging=true;lastPointer={x:event.clientX,y:event.clientY};cropCanvas.setPointerCapture(event.pointerId);});
 cropCanvas.addEventListener("pointermove",event=>{if(!dragging||!lastPointer)return;const rect=cropCanvas.getBoundingClientRect();offsetX+=(event.clientX-lastPointer.x)*frameSize/rect.width;offsetY+=(event.clientY-lastPointer.y)*frameSize/rect.height;lastPointer={x:event.clientX,y:event.clientY};renderCrop();});
@@ -265,14 +320,14 @@ predictButton.addEventListener("click",async()=>{
     const blob=await new Promise((resolve,reject)=>output.toBlob(b=>b?resolve(b):reject(new Error("Could not create crop")),"image/jpeg",.92));
     const form=new FormData();form.append("image",blob,"object-crop.jpg");form.append("model",document.querySelector("#demo-model").value);form.append("threshold",threshold.value);
     const response=await fetch(`${API_URL.replace(/\/$/,"")}/predict`,{method:"POST",body:form});
-    const data=await response.json();if(!response.ok)throw new Error(data.detail||`Request failed (${response.status})`);
+    const data=await response.json();if(!response.ok)throw new Error(data.detail||`Request failed (${response.status})`);if(data.pipeline_version!=="v2")throw new Error("The API is still running the v1 model. Restart it to load the v2 models.");
     prediction.dataset.confidence=data.confidence;prediction.dataset.predicted=data.predicted_class;
     const sorted=Object.entries(data.all_class_probabilities).sort((a,b)=>b[1]-a[1]);
     document.querySelector("#probabilities").innerHTML=sorted.map(([label,value])=>`<div class="prob-row ${label===data.predicted_class?"top":""}"><span>${label===data.predicted_class?"★ ":""}${label}</span><div class="prob-track"><i style="width:${Math.max(0,Math.min(100,value*100))}%"></i></div><b>${percent(value)}</b></div>`).join("");
     prediction.hidden=false;document.querySelector("#prediction-empty").hidden=true;
-    apiStatus.textContent=`Prediction received from ${modelNames[data.model_used]||data.model_used}. Moving the threshold below does not change these scores.`;updateDecision();
+    apiStatus.textContent=`V2 prediction received from ${modelNames[data.model_used]||data.model_used}. Moving the threshold below does not change these scores.`;updateDecision();
   }catch(error){apiStatus.textContent=`The API may be waking up or unreachable: ${error.message}`;}
   finally{predictButton.disabled=false;}
 });
 if(!API_URL)apiStatus.textContent="No prediction API address is configured.";
-else fetch(`${API_URL}/health`).then(response=>{if(!response.ok)throw new Error("API unavailable");return response.json();}).then(()=>{apiStatus.textContent="Prediction API connected on this computer. Choose an image to begin.";}).catch(()=>{apiStatus.textContent="The prediction service is not running. Start the local API, then reopen this page.";});
+else fetch(`${API_URL}/health`).then(response=>{if(!response.ok)throw new Error("API unavailable");return response.json();}).then(data=>{if(data.pipeline!=="v2")throw new Error("The old API version is running");apiStatus.textContent="V2 prediction API connected on this computer. Choose an image to begin.";}).catch(()=>{apiStatus.textContent="The v2 prediction service is not ready. Restart the local API, then reopen this page.";});
