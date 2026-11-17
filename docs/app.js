@@ -362,4 +362,4 @@ predictButton.addEventListener("click",async()=>{
   finally{predictButton.disabled=false;}
 });
 if(!API_URL)apiStatus.textContent="No prediction API address is configured.";
-else fetch(`${API_URL}/health`).then(response=>{if(!response.ok)throw new Error("API unavailable");return response.json();}).then(data=>{if(data.pipeline!=="v2")throw new Error("The old API version is running");apiStatus.textContent="V2 prediction API connected on this computer. Choose an image to begin.";}).catch(()=>{apiStatus.textContent="The v2 prediction service is not ready. Restart the local API, then reopen this page.";});
+else fetch(`${API_URL}/health`).then(response=>{if(!response.ok)throw new Error("API unavailable");return response.json();}).then(data=>{if(data.pipeline!=="v2")throw new Error("The old API version is running");apiStatus.textContent="V2 prediction API connected. Choose an image to begin.";}).catch(()=>{apiStatus.textContent="The v2 prediction service is not responding. It may be waking up; try again shortly.";});

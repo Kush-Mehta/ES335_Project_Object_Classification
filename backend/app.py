@@ -21,9 +21,9 @@ def health():
     return {"status": "ok", "pipeline": "v2", "default_model": "rf", "models": list(MODEL_SLUGS)}
 
 
-@lru_cache(maxsize=3)
+@lru_cache(maxsize=1)
 def load_model_pair(model):
-    """Load a selected HOG/color pair once; avoid reloading large SVMs per request."""
+    """Keep one selected HOG/color model pair resident to limit API memory use."""
     slug = MODEL_SLUGS[model]
     key = PARAMETER_KEYS[model]
     with open(MODEL_DIR / "best_params_twostream.json", encoding="utf-8") as f:

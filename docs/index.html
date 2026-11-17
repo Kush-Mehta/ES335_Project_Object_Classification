@@ -122,6 +122,11 @@
 </main>
 <script src="data/v2_results.js"></script>
 <script src="data/v1_rejection.js"></script>
+<script>
+  if (!["localhost", "127.0.0.1"].includes(location.hostname) && location.protocol !== "file:") {
+    window.VMRD_API_URL = "https://vmrd-api.onrender.com";
+  }
+</script>
 <script src="app.js"></script>
 </body>
 </html>
