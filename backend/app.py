@@ -18,7 +18,7 @@ PARAMETER_KEYS = {"svm": "SVM_RBF", "lr": "LogisticRegression", "rf": "RandomFor
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "pipeline": "v2", "models": list(MODEL_SLUGS)}
+    return {"status": "ok", "pipeline": "v2", "default_model": "rf", "models": list(MODEL_SLUGS)}
 
 
 @lru_cache(maxsize=3)
@@ -39,7 +39,7 @@ def load_model_pair(model):
 
 
 @app.post("/predict")
-async def predict(image: UploadFile = File(...), model: str = Form("svm"), threshold: float = Form(0.8)):
+async def predict(image: UploadFile = File(...), model: str = Form("rf"), threshold: float = Form(0.8)):
     """Classify one user-cropped object with the v2 two-stream late-fusion pipeline."""
     if model not in {"svm", "lr", "rf"}:
         raise HTTPException(400, "model must be svm, lr, or rf")

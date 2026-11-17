@@ -133,7 +133,7 @@ document.querySelectorAll("[data-matrix-mode]").forEach(button=>button.addEventL
   matrixMode=button.dataset.matrixMode;
   document.querySelectorAll("[data-matrix-mode]").forEach(b=>b.classList.toggle("active",b===button));renderMatrix();
 }));
-document.querySelector("#matrix-model").value="svm";
+document.querySelector("#matrix-model").value="rf";
 renderMatrix();
 
 // Small, data-backed model comparison; the selector switches the measured quantity.
@@ -185,7 +185,7 @@ function loadRejectionData(){
   const note=document.querySelector("#rejection-plot");
   const label=document.querySelector("#curve-threshold-value");
   const output=document.querySelector("#curve-point");
-  document.querySelector("#curve-model").value="SVM_RBF";
+  document.querySelector("#curve-model").value="Random_Forest";
   try{
     if(!window.VMRD_V1_REJECTION||!v2Report?.models)throw new Error("missing exact result data");
     const displayNames={Logistic_Regression:"Logistic Regression",SVM_RBF:"SVM (RBF)",Random_Forest:"Random Forest"};

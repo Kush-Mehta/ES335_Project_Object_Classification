@@ -76,7 +76,9 @@ Example request:
 curl -X POST -F "image=@crop.jpg" -F "model=svm" -F "threshold=0.80" http://localhost:8000/predict
 ```
 
-The endpoint accepts `svm`, `lr`, or `rf` and returns the v2 fused prediction, confidence, all five class scores, fusion weight, and threshold decision. Its `/docs` page provides the generated API schema. The exported model files are generated locally and ignored by Git; no hosted endpoint is configured yet.
+The endpoint accepts `svm`, `lr`, or `rf` and returns the v2 fused prediction, confidence, all five class scores, fusion weight, and threshold decision. Random Forest is the default in both the website and API; callers can choose another model explicitly. Its `/docs` page provides the generated API schema. The exported model files are generated locally and ignored by Git; no hosted endpoint is configured yet.
+
+The complete website snapshot from before the Random Forest default change is preserved in `docs/archive/v2-before-rf-default/`.
 
 ## Repository map
 

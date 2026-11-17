@@ -1,0 +1,1 @@
+This folder preserves the complete v2 website immediately before Random Forest was made the default model. Open index.html to view that snapshot. Its visualizations and predictor still include the previous SVM defaults. The current website is in the parent docs folder.
